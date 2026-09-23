@@ -41,6 +41,10 @@ function Card({ children, className = "" }) {
   return <section className={`card ${className}`}>{children}</section>;
 }
 
+function BrandMark() {
+  return <div className="brand-mark" aria-hidden="true"><svg viewBox="0 0 48 48" role="img"><defs><linearGradient id="brand-gradient" x1="8" y1="43" x2="39" y2="4" gradientUnits="userSpaceOnUse"><stop offset="0" stopColor="#D95B68" /><stop offset=".5" stopColor="#8A315A" /><stop offset="1" stopColor="#48245F" /></linearGradient><linearGradient id="brand-hair-gradient" x1="12" y1="40" x2="28" y2="10" gradientUnits="userSpaceOnUse"><stop offset="0" stopColor="#F16A6C" /><stop offset="1" stopColor="#8D315A" /></linearGradient></defs><path fill="url(#brand-gradient)" d="M24 3.5 40 9v12.2c0 10.7-6.6 19.2-16 23.3-9.4-4.1-16-12.6-16-23.3V9L24 3.5Z" /><path className="brand-hair" d="M27.4 7.8c-1.1 6.5-3.8 11.8-8 15.9-3.6 3.5-5.4 7.4-5.4 11.6 0 3.7 1.3 6.8 4 9.2l7.4 1.8c-4.1-2.7-6.2-6-6.2-10 0-3.8 1.9-7 4.8-10.5 4.6-5.5 6.2-11.4 5.9-18Z" fill="url(#brand-hair-gradient)" /><path className="brand-profile" d="M27.7 8.4c2.1 2.8 2.9 6 2.5 9.5-.1 1.1.3 2 1 2.4l.5.4c.3.2.3.6 0 .8l-.5.4.6.5c.2.2.2.5-.1.7l-1 .6c-.4 1.3-1.3 2.2-2.7 2.7-1.4.5-2.1 1.6-2.1 3.4 0 3.2 1.8 6 5.3 8.5l-4.7 2.9c-4.6-2.5-6.9-5.9-6.9-10.2 0-4.1 1.9-7.4 4.6-10.9 3.1-4 4.2-8.6 3.5-13.9Z" /></svg></div>;
+}
+
 function EmptyState({ title = "Run an analysis to unlock this view." }) {
   return <Card className="empty-state"><CircleAlert size={23} /><strong>{title}</strong><p>Your result will remain available as you move through the workspace.</p></Card>;
 }
@@ -207,12 +211,46 @@ function Safety({ result }) {
   return <main><PageTitle eyebrow="Actionable safety guide" title="Move at the speed of safety." text="These are practical decision-support steps. You stay in control of what feels safe." /><Card className="directive"><span className="eyebrow">Primary safety directive · {safety.priority || "Review"}</span><h2>{safety.primary_action || "Review the conversation with someone you trust."}</h2></Card><div className="safety-grid">{(safety.actions || []).map((item, index) => <Card key={`${item.headline}-${index}`}><span className="step-label">0{index + 1}</span><h3>{item.headline || "Safety step"}</h3><p>{item.action || ""}</p><small>{item.rationale || ""}</small></Card>)}</div><Card><h2>Verification checklist</h2><ul className="checklist">{(safety.verification_steps || []).map((step) => <li key={step}><CheckCircle2 size={17} />{step}</li>)}</ul></Card></main>;
 }
 
+function ReportFooter() {
+  return null;
+}
+
+function ReportExplainability({ result }) {
+  const messages = result?.messages || [];
+  const patterns = {};
+  messages.forEach((message) => (message.patterns || []).forEach((pattern) => {
+    const severity = String(pattern.severity || "").toUpperCase();
+    if (!["HIGH", "CRITICAL", "MODERATE", "MEDIUM", "LOW"].includes(severity)) return;
+    const key = pattern.pattern_key || pattern.pattern_name;
+    if (!patterns[key]) patterns[key] = { ...pattern, evidence: [], cueCount: 0 };
+    patterns[key].cueCount += 1;
+    patterns[key].evidence.push(...(pattern.evidence || []));
+  }));
+  const items = Object.values(patterns);
+  if (!items.length) return <Card className="empty-state"><strong>No explainable pattern details were returned.</strong></Card>;
+  return <div className="report-explain-list">{items.map((pattern) => <Card className="report-explain-item" key={pattern.pattern_key || pattern.pattern_name}><div className="report-explain-head"><div><span className="eyebrow">Pattern</span><h3>{pattern.pattern_name || pattern.pattern_key}</h3></div><RiskBadge level={pattern.severity} /></div><div className="report-explain-flow"><div><span>Evidence</span><blockquote>{pattern.evidence?.slice(0, 1).map((item) => `“${item}”`).join("") || "Evidence text was not returned."}</blockquote></div><div><span>Why it matters</span><p>{pattern.explanation || "This behavioural pattern was observed in the conversation."}</p></div><div><span>Observed</span><strong>{pattern.cueCount} cue(s)</strong></div></div></Card>)}</div>;
+}
+
+function ReportEvidence({ result }) {
+  const messages = (result?.messages || []).flatMap((message) => (message.patterns || []).filter((pattern) => ["HIGH", "CRITICAL", "MODERATE", "MEDIUM", "LOW"].includes(String(pattern.severity || "").toUpperCase())).map((pattern) => ({ message, pattern })));
+  if (!messages.length) return <Card className="empty-state"><strong>No key evidence was returned for this analysis.</strong></Card>;
+  return <div className="report-evidence-list">{messages.map(({ message, pattern }, index) => <Card className="report-evidence-row" key={`${message.message_index}-${pattern.pattern_key}-${index}`}><div className="report-evidence-meta"><strong>Turn {message.message_index ?? "—"}</strong><span>{message.speaker || "Conversation participant"}</span><RiskBadge level={pattern.severity} /></div><div><span className="eyebrow">Observed phrase</span><blockquote>{(pattern.evidence || []).slice(0, 1).map((item) => `“${item}”`).join("") || "Phrase evidence was not returned."}</blockquote></div><div><span className="eyebrow">Behavioural pattern</span><strong>{pattern.pattern_name || pattern.pattern_key}</strong><p>{pattern.explanation || "Behavioural signal observed in this turn."}</p></div></Card>)}</div>;
+}
+
+function ReportEscalation({ result }) {
+  const esc = get(result, "escalation_analysis") || {};
+  const active = esc.active_stages || [];
+  return <><div className="report-stage-list">{stages.map((stage, index) => <div className={`report-stage-row ${active.includes(index) ? "observed" : ""}`} key={stage}><span className="report-stage-number">{index}</span><strong>{stage}</strong><span>{active.includes(index) ? "Observed stage" : "Not observed in returned output"}</span></div>)}</div><div className="report-escalation-summary"><p><b>Current stage:</b> {esc.max_stage_name || "Baseline"}</p><p><b>Progression:</b> {esc.narrative || "No escalation narrative was returned."}</p></div></>;
+}
+
 function Report({ result }) {
   if (!result) return <main><PageTitle eyebrow="Executive report & export" title="Make the insight portable." text="Run an analysis to generate a consolidated report." /><EmptyState /></main>;
   const risk = get(result, "risk_assessment") || {}, patterns = get(result, "behavioral_patterns") || {}, safety = get(result, "safety_recommendations") || {};
   const reportRef = useRef(null);
+  const [exporting, setExporting] = useState(false);
   async function downloadPdf() {
     if (!reportRef.current) return;
+    setExporting(true);
     const pdf = new jsPDF("p", "mm", "a4");
     const report = reportRef.current.querySelector(".report");
     const sections = report ? Array.from(report.querySelectorAll(".report-page-section")) : [];
@@ -222,16 +260,44 @@ function Report({ result }) {
     let hasContent = false;
 
     for (const section of sections) {
-      const canvas = await html2canvas(section, { backgroundColor: "#FFFFFF", scale: 1.5, useCORS: true });
+      const evidenceRows = Array.from(section.querySelectorAll(".report-evidence-row"));
+      if (evidenceRows.length) {
+        const heading = section.querySelector(":scope > h3");
+        const headingCanvas = heading ? await html2canvas(heading, { backgroundColor: "#FFFFFF", scale: 1, useCORS: true, logging: false }) : null;
+        let rowY = margin;
+        let pageStarted = false;
+        for (const row of evidenceRows) {
+          const rowCanvas = await html2canvas(row, { backgroundColor: "#FFFFFF", scale: 1, useCORS: true, logging: false });
+          const rowHeight = (rowCanvas.height * pageWidth) / rowCanvas.width;
+          const headingHeight = headingCanvas ? (headingCanvas.height * pageWidth) / headingCanvas.width : 0;
+          if (!pageStarted || rowY + rowHeight > pageHeight) {
+            if (hasContent || pageStarted) pdf.addPage();
+            rowY = margin;
+            pageStarted = true;
+            if (headingCanvas) {
+              pdf.addImage(headingCanvas.toDataURL("image/png"), "PNG", margin, rowY, pageWidth, headingHeight);
+              rowY += headingHeight + 8;
+            }
+          }
+          pdf.addImage(rowCanvas.toDataURL("image/png"), "PNG", margin, rowY, pageWidth, rowHeight);
+          rowY += rowHeight + 4;
+          hasContent = true;
+        }
+        continue;
+      }
+      const canvas = await html2canvas(section, { backgroundColor: "#FFFFFF", scale: 1, useCORS: true, logging: false });
       const sectionHeight = (canvas.height * pageWidth) / canvas.width;
       if (hasContent) pdf.addPage();
-      const fittedHeight = Math.min(sectionHeight, pageHeight);
-      pdf.addImage(canvas.toDataURL("image/png"), "PNG", margin, margin, pageWidth, fittedHeight);
+      const scale = Math.min(1, pageHeight / sectionHeight);
+      const fittedWidth = pageWidth * scale;
+      const fittedHeight = sectionHeight * scale;
+      pdf.addImage(canvas.toDataURL("image/png"), "PNG", margin + ((pageWidth - fittedWidth) / 2), margin, fittedWidth, fittedHeight);
       hasContent = true;
     }
     pdf.save("herbeacon-analysis-report.pdf");
+    setExporting(false);
   }
-  return <main><PageTitle eyebrow="Executive report & export" title="Evidence-oriented analysis report." text="A visual, safety-first summary for reflection, support conversations, or responsible review." /><div className="report-actions"><button className="button button-primary" onClick={downloadPdf}>Download PDF <FileText size={16} /></button></div><div ref={reportRef} className="report-canvas"><Card className="report"><div className="report-page-section"><div className="report-brand"><span>HERBEACON</span><small>Behavioural safety intelligence</small></div><h2>Evidence-oriented analysis report</h2><p className="muted">Behavioural patterns associated with risk observed. This report is a decision-support summary, not a conclusive determination of identity or intent.</p><div className="report-summary"><Stat label="Risk indicator" value={`${risk.risk_score ?? "—"}/100`} /><Stat label="Risk level" value={risk.risk_level || "—"} /><Stat label="Cues detected" value={patterns.total_cues_detected ?? "—"} /><Stat label="Trajectory" value={get(result, "risk_timeline", "trajectory_type") || "—"} /></div></div><div className="report-page-section"><h3>Conversation graphs</h3><div className="report-chart-grid"><Card><h3>Behavioural Signal Distribution</h3><SignalChart result={result} /></Card><Card><h3>Risk Factor Contribution</h3><ContributionChart result={result} /></Card></div><Card><h3>Risk Progression</h3><RiskProgression result={result} /></Card></div><div className="report-page-section"><h3>Why was this conversation flagged?</h3><Explainability result={result} /></div><div className="report-page-section"><h3>Key evidence</h3><EvidenceSection result={result} compact /></div><div className="report-page-section"><h3>Escalation journey</h3><Escalation result={result} /></div><div className="report-page-section"><h3>Situation-specific safety actions</h3><div className="safety-grid">{(safety.actions || []).map((item, index) => <Card key={`${item.headline}-${index}`}><span className="step-label">0{index + 1}</span><h3>{item.headline || "Safety step"}</h3><p>{item.action || ""}</p></Card>)}</div></div></Card></div></main>;
+  return <main><PageTitle eyebrow="Executive report & export" title="Evidence-oriented analysis report." text="A visual, safety-first summary for reflection, support conversations, or responsible review." /><div className="report-actions"><button className="button button-primary" disabled={exporting} onClick={downloadPdf}>{exporting ? "Preparing PDF…" : "Download PDF"} <FileText size={16} /></button></div><div ref={reportRef} className="report-canvas"><Card className="report"><div className="report-page-section"><div className="report-brand"><span>HERBEACON</span><small>Behavioural safety intelligence</small></div><h2>Evidence-oriented analysis report</h2><div className="report-summary"><Stat label="Risk score" value={`${risk.risk_score ?? "—"}/100`} /><Stat label="Risk level" value={risk.risk_level || "—"} /><Stat label="Cues detected" value={patterns.total_cues_detected ?? "—"} /><Stat label="Trajectory" value={get(result, "risk_timeline", "trajectory_type") || "—"} /></div><div className="report-executive-grid"><div><span className="eyebrow">What was observed</span><p>{risk.summary || "The engine returned no summary."}</p></div><div><span className="eyebrow">Why it matters</span><p>{get(result, "explainability", "narrative") || "Behavioural patterns were reviewed using the existing analysis engine."}</p></div><div><span className="eyebrow">Current stage</span><p>{get(result, "escalation_analysis", "max_stage_name") || "Baseline"}</p></div><div><span className="eyebrow">Immediate action</span><p>{safety.primary_action || "Review the conversation with someone you trust."}</p></div></div><ReportFooter page="1" /></div><div className="report-page-section"><h3>Conversation intelligence</h3><div className="report-chart-grid"><Card><h3>Behavioural Signal Distribution</h3><SignalChart result={result} /></Card><Card><h3>Risk Factor Contribution</h3><ContributionChart result={result} /></Card></div><Card><h3>Risk Progression</h3><RiskProgression result={result} height={300} /></Card><ReportFooter page="2" /></div><div className="report-page-section"><h3>Why was this conversation flagged?</h3><ReportExplainability result={result} /><ReportFooter page="3" /></div><div className="report-page-section"><h3>Key evidence</h3><ReportEvidence result={result} /><ReportFooter page="4" /></div><div className="report-page-section"><h3>Escalation journey</h3><ReportEscalation result={result} /><ReportFooter page="5" /></div><div className="report-page-section"><h3>Situation-specific safety actions</h3><div className="report-safety-grid">{(safety.actions || []).map((item, index) => <Card className={index === 0 ? "priority-safety-card" : ""} key={`${item.headline}-${index}`}><span className="step-label">0{index + 1}</span><h3>{item.headline || "Safety step"}</h3><p>{item.rationale || ""}</p><strong>{item.action || ""}</strong></Card>)}</div><div className="report-next-steps"><span className="eyebrow">Immediate next steps</span>{(safety.verification_steps || []).slice(0, 4).map((step) => <span key={step}>{step}</span>)}</div><ReportFooter page="6" /></div></Card></div></main>;
 }
 
 function PageTitle({ eyebrow, title, text }) {
@@ -263,7 +329,7 @@ export default function App() {
   function handleAnalysisResult(analysis) {
     setResult(analysis);
     setAnalysisVersion((version) => version + 1);
-    navigate("overview");
+    navigate("matrix");
   }
-  return <div className="app-shell"><aside className={mobileOpen ? "sidebar open" : "sidebar"}><div className="brand"><div className="brand-mark">✦</div><div><strong>HerBeacon</strong><span>Behavioural safety intelligence</span></div><button className="icon-button sidebar-close" onClick={() => setMobileOpen(false)}><X size={19} /></button></div><div className="sidebar-rule" /><nav>{nav.map(([id, label, Icon]) => <button key={id} className={page === id ? "nav-item active" : "nav-item"} onClick={() => navigate(id)}><Icon size={18} /><span>{label}</span>{page === id && <ChevronRight size={15} />}</button>)}</nav><div className="sidebar-usp"><span>Core USP</span><p>“We don't detect suspicious people; we detect suspicious behavioural patterns.”</p></div><div className="sidebar-footer"><span className="status-dot" /> Engine bridge ready</div></aside><div className="mobile-bar"><button className="icon-button" onClick={() => setMobileOpen(true)}><Menu size={22} /></button><strong>HerBeacon</strong></div><div className="main-shell"><header className="topbar"><div className="breadcrumb">Workspace <ChevronRight size={14} /> <span>{current?.[1]}</span></div>{result ? <div className="analysis-chip"><span className="status-dot" /> Analysis saved</div> : <div className="analysis-chip muted-chip">No analysis loaded</div>}</header>{page === "overview" && <Overview key={analysisVersion} onStart={() => navigate("intake")} onSafety={() => navigate("safety")} result={result} />}{page === "intake" && <Intake onResult={handleAnalysisResult} />}{page === "matrix" && <Matrix key={analysisVersion} result={result} />}{page === "patterns" && <Patterns key={analysisVersion} result={result} />}{page === "timeline" && <Timeline key={analysisVersion} result={result} />}{page === "safety" && <Safety key={analysisVersion} result={result} />}{page === "report" && <Report key={analysisVersion} result={result} />}</div></div>;
+  return <div className="app-shell"><aside className={mobileOpen ? "sidebar open" : "sidebar"}><div className="brand"><BrandMark /><div><strong>HerBeacon</strong><span>Behavioural safety intelligence</span></div><button className="icon-button sidebar-close" onClick={() => setMobileOpen(false)}><X size={19} /></button></div><div className="sidebar-rule" /><nav>{nav.map(([id, label, Icon]) => <button key={id} className={page === id ? "nav-item active" : "nav-item"} onClick={() => navigate(id)}><Icon size={18} /><span>{label}</span>{page === id && <ChevronRight size={15} />}</button>)}</nav><div className="sidebar-usp"><span>Core USP</span><p>“We don't detect suspicious people; we detect suspicious behavioural patterns.”</p></div><div className="sidebar-footer"><span className="status-dot" /> Engine bridge ready</div></aside><div className="mobile-bar"><button className="icon-button" onClick={() => setMobileOpen(true)}><Menu size={22} /></button><strong>HerBeacon</strong></div><div className="main-shell"><header className="topbar"><div className="breadcrumb">Workspace <ChevronRight size={14} /> <span>{current?.[1]}</span></div>{result ? <div className="analysis-chip"><span className="status-dot" /> Analysis saved</div> : <div className="analysis-chip muted-chip">No analysis loaded</div>}</header>{page === "overview" && <Overview key={analysisVersion} onStart={() => navigate("intake")} onSafety={() => navigate("safety")} result={result} />}{page === "intake" && <Intake onResult={handleAnalysisResult} />}{page === "matrix" && <Matrix key={analysisVersion} result={result} />}{page === "patterns" && <Patterns key={analysisVersion} result={result} />}{page === "timeline" && <Timeline key={analysisVersion} result={result} />}{page === "safety" && <Safety key={analysisVersion} result={result} />}{page === "report" && <Report key={analysisVersion} result={result} />}</div></div>;
 }
